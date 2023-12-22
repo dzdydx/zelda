@@ -1,0 +1,52 @@
+mode: 'train'
+
+data:
+  train_csv: '/mnt2/lwy/zelda/tasks/esc50/metadata/esc50_fold1+2+3.csv'
+  val_csv: '/mnt2/lwy/zelda/tasks/esc50/metadata/esc50_fold4.csv'
+  test_csv: '/mnt2/lwy/zelda/tasks/esc50/metadata/esc50_fold5.csv'
+  dataset: 'esc50'
+  root_dir: '/mnt/datasets/ESC-50/audio_32k/'
+  label_vocab: '/mnt2/lwy/zelda/tasks/esc50/metadata/label_vocabulary.csv'
+  batch_size: 16
+  num_workers: 8
+  preprocess_args:
+    sample_rate: 32000
+    classes_num: 50
+    clip_length: 5
+
+    n_mels: 64
+    win_length: 800
+    hopsize: 320
+    n_fft: 1024
+    htk: False
+    # fmin: 0.0
+    # fmax: None
+    norm: 1
+    fmin_aug_range: 10
+    fmax_aug_range: 2000
+
+    augment: False
+    mixup: 0.0
+    freq_mask: 0
+    time_mask: 0
+
+model:
+  name: 'panns'
+  weight_decay: 1e-5
+  optimizer: 'adam'
+  lr: 0.00005
+  lr_scheduler: 'step'
+  lr_decay_steps: 5
+  lr_decay_rate: 0.5
+  # lr_decay_min_lr: 1e-6
+  num_classes: 50
+  classification_type: 'multiclass'
+
+trainer:
+  devices: 1
+  # num_nodes: 1
+  max_epochs: 10
+  num_sanity_val_steps: 0
+
+# Others
+log_dir: '/mnt1/lwy/blap/tasks/esc50/logs'

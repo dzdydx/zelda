@@ -1,0 +1,64 @@
+mode: 'train'
+
+data:
+  train_csv: '/mnt2/lwy/zelda/tasks/esc50/metadata/esc50_fold1+2+3.csv'
+  val_csv: '/mnt2/lwy/zelda/tasks/esc50/metadata/esc50_fold4.csv'
+  test_csv: '/mnt2/lwy/zelda/tasks/esc50/metadata/esc50_fold5.csv'
+  dataset: 'esc50'
+  root_dir: '/mnt/datasets/ESC-50/audio_32k/'
+  label_vocab: '/mnt2/lwy/zelda/tasks/esc50/metadata/label_vocabulary.csv'
+  batch_size: 16
+  num_workers: 8
+  preprocess_args:
+    sample_rate: 32000
+    classes_num: 50
+    clip_length: 5
+
+    n_mels: 128
+    win_length: 800
+    hopsize: 320
+    n_fft: 1024
+    htk: False
+    # fmin: 0.0
+    # fmax: None
+    norm: 1
+    fmin_aug_range: 10
+    fmax_aug_range: 2000
+
+    augment: True
+    mixup: 0.3
+    freq_mask: 48
+    time_mask: 80
+
+model:
+  name: 'passt'
+  num_classes: 50
+  classification_type: 'multiclass'
+  stride: 10
+  distilled: True
+  s_patchout_t: 40
+  s_patchout_f: 4
+  pretrain_model: '/mnt1/lwy/sed/checkpoints/esc50-passt-s-n-f128-p16-s10-fold1-acc.967.pt'
+
+  weight_decay: 1e-5
+  optimizer: 'adam'
+  lr: 0.0001
+  # lr_scheduler: 'cosine'
+  # lr_decay_steps: 5
+  # lr_decay_rate: 0.5
+  # lr_decay_min_lr: 1e-6
+  lr_scheduler: 'exp_warm'
+  warmup_epochs: 4
+  rampdown_length: 12
+  start_rampdown: 12
+  last_lr_value: 1e-6
+
+trainer:
+  devices: 1
+  # num_nodes: 1
+  max_epochs: 30
+  num_sanity_val_steps: 0
+
+# Others
+log_dir: '/mnt1/lwy/blap/tasks/esc50/logs'
+# ckpt_path: '/mnt1/lwy/blap/tasks/esc50/logs/passt/version_5/checkpoints/best-epoch=19-top1_acc=1.000.ckpt'

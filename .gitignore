@@ -1,0 +1,29 @@
+# Data
+datasets/
+*.json
+*.pkl
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.pth
+*.pt
+
+# Logs
+logs/
+tasks/esc50/metadata/*.csv
+!tasks/esc50/metadata/label_vocabulary.csv
+*.log
+
+# Checkpoints
+checkpoints/
+*.ckpt
+
+# Python
+__pycache__/
+
+# PyTorch Lightning logs
+lightning_logs/
+
+# Others
+*.ipynb
