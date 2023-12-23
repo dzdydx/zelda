@@ -87,7 +87,7 @@ class MInterface(pl.LightningModule):
         return super().on_train_start()
 
     def training_step(self, batch):
-        x, target, _ = batch
+        x, target, text, _ = batch
         y_hat = self.model(x)
 
         if self.args.classification_type == "multilabel":
@@ -122,7 +122,7 @@ class MInterface(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, target, file_path = batch
+        x, target, text, audio_name = batch
         y_hat = self.model(x)
 
         if self.args.classification_type == "multilabel":
@@ -146,13 +146,13 @@ class MInterface(pl.LightningModule):
                 "Only multilabel and multiclass classification are supported"
             )
 
-        return {"target": target, "prediction": y_hat, "file_path": file_path}
+        return {"target": target, "prediction": y_hat, "audio_name": audio_name}
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
 
     def predict_step(self, batch, batch_idx):
-        x, target, file_path = batch
+        x, target, _, audio_name = batch
         y_hat = self.model(x)
 
         if self.args.classification_type == "multilabel":
@@ -164,7 +164,7 @@ class MInterface(pl.LightningModule):
                 "Only multilabel and multiclass classification are supported"
             )
 
-        return {"target": target, "prediction": y_hat, "file_path": file_path}
+        return {"target": target, "prediction": y_hat, "audio_name": audio_name}
 
     def configure_optimizers(self):
         if self.args.weight_decay > 0:

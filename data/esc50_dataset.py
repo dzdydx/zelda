@@ -12,6 +12,35 @@ import pandas as pd
 import torch
 import torchaudio
 
+def get_text_desc(fg_label, bg_label, snr_db):
+    """
+    Get text description of the audio mix based on foreground sound event label (fg_label),
+    background sound scene label (bg_label), and signal-to-noise ratio (snr_db).
+    snr_db: [-15, -10, -5, 0, 5]
+    """
+    # Replace _ with space
+    fg_label = fg_label.replace("_", " ")
+    bg_label = bg_label.replace("_", " ")
+
+    # Determine the noise level description based on SNR
+    if snr_db == 5:
+        noise_level_desc = "quiet"
+    elif snr_db == 0:
+        noise_level_desc = "moderately noisy"
+    elif snr_db == -5:
+        noise_level_desc = "noisy"
+    elif snr_db == -10:
+        noise_level_desc = "very noisy"
+    elif snr_db == -15:
+        noise_level_desc = "extremely noisy"
+    else:
+        raise ValueError("Invalid SNR value. Must be one of [-15, -10, -5, 0, 5].")
+
+    # Construct the text prompt
+    prompt = f"Sound of {fg_label} in {noise_level_desc} {bg_label}."
+
+    return prompt
+
 def mix_audios(bg_file, fg_file, snr_db):
     """
     Mix background and foreground audio files with given SNR
@@ -80,10 +109,10 @@ def decode_mp3(mp3_arr):
 
 
 def pad_or_truncate(x, audio_length):
-    """Pad all audio to specific length."""
+    """Pad or truncate audio to specific length."""
     if len(x) <= audio_length:
-        return np.concatenate(
-            (x, np.zeros(audio_length - len(x), dtype=np.float32)), axis=0
+        return torch.cat(
+            (x, torch.zeros(audio_length - len(x), dtype=torch.float32)), dim=0
         )
     else:
         return x[0:audio_length]
@@ -152,11 +181,12 @@ class ESC50Dataset(Dataset):
 
         # add noise from TAU
         self.mix_noise = mix_noise
+        self.tau_root = tau_root
+        self.snr = snr
+        self.scene_label = tau_scene_label
         if mix_noise:
-            self.tau_root = tau_root
-            self.snr = snr
             self.tau_meta = pd.read_csv(tau_meta, sep="\t")
-            self.scene_label = tau_scene_label
+
 
         # augmentation
         self.augment = augment
@@ -173,22 +203,6 @@ class ESC50Dataset(Dataset):
                 self.timem = torchaudio.transforms.TimeMasking(
                     time_mask, iid_masks=True
                 )
-    
-    def resample(self, waveform):
-        """Resample.
-        Args:
-          waveform: (clip_samples,)
-        Returns:
-          (resampled_clip_samples,)
-        """
-        if self.sample_rate == 32000:
-            return waveform
-        elif self.sample_rate == 16000:
-            return waveform[0::2]
-        elif self.sample_rate == 8000:
-            return waveform[0::4]
-        else:
-            raise Exception("Incorrect sample rate!")
 
     def get_logmel(self, waveform):
         """Get log mel spectrogram of a waveform.
@@ -253,7 +267,10 @@ class ESC50Dataset(Dataset):
         filepath = Path(self.root_dir) / data_item['filename']
         label = data_item['esc_category']
         audio_name = data_item['filename']
-        text = "" # TODO: add text
+        text = ""
+        # Get text description
+        if self.scene_label:
+            text = get_text_desc(label, self.scene_label, self.snr)
 
         if self.mix_noise:
             # randomly sample 1 file from TAU with given scene label
@@ -261,11 +278,14 @@ class ESC50Dataset(Dataset):
             noise_filepath = Path(self.tau_root) / tau_sample['filename'].values[0]
             # mix noise
             waveform = mix_audios(noise_filepath, filepath, self.snr)
+            waveform = pad_or_truncate(waveform.squeeze(0), self.clip_length)
+            waveform = waveform.reshape(1, -1)
+            # Get text description
+            text = get_text_desc(label, self.scene_label, self.snr)
         else:
             waveform, _ = torchaudio.load(filepath)
-            waveform = self.resample(waveform.squeeze(0))
-            waveform = pad_or_truncate(waveform, self.clip_length)
-            waveform = torch.from_numpy(waveform.reshape(1, -1))
+            waveform = pad_or_truncate(waveform.squeeze(0), self.clip_length)
+            waveform = waveform.reshape(1, -1)
 
         target = torch.zeros(self.classes_num)
         target[int(self.index_dict[label])] = 1.0
@@ -301,4 +321,4 @@ class ESC50Dataset(Dataset):
             if self.freq_mask > 0:
                 logmel = self.timem(logmel)
 
-        return logmel, target, audio_name
+        return logmel, target, text, audio_name
