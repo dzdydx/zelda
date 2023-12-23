@@ -19,14 +19,14 @@ def parse_args():
 def load_callbacks():
     callbacks = []
 
-    # callbacks.append(plc.EarlyStopping(
-    #     monitor="top1_acc",
-    #     mode="max",
-    #     patience=20,
-    #     min_delta=0.001,
-    #     check_on_train_epoch_end=False,
-    #     verbose=False,
-    # ))
+    callbacks.append(plc.EarlyStopping(
+        monitor="top1_acc",
+        mode="max",
+        patience=20,
+        min_delta=0.001,
+        check_on_train_epoch_end=False,
+        verbose=False,
+    ))
 
     callbacks.append(plc.ModelCheckpoint(
         monitor="top1_acc",

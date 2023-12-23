@@ -9,6 +9,47 @@ import torchaudio
 import torch.nn as nn
 import csv
 import pandas as pd
+import torch
+import torchaudio
+
+def mix_audios(bg_file, fg_file, snr_db):
+    """
+    Mix background and foreground audio files with given SNR
+    Same as mix_audios, but using torchaudio
+    """
+    bg, bg_sr = torchaudio.load(bg_file)
+    fg, fg_sr = torchaudio.load(fg_file)
+
+    # bg from TAU is stereo, convert to mono
+    if bg.shape[0] > 1:
+        bg = torch.mean(bg, dim=0, keepdim=True)
+
+    # Resample to 32kHz, fit model input
+    bg = torchaudio.transforms.Resample(orig_freq=bg_sr, new_freq=32000)(bg)
+    fg = torchaudio.transforms.Resample(orig_freq=fg_sr, new_freq=32000)(fg)
+
+    # Trim bg to fg length if bg is longer than fg
+    if bg.shape[1] > fg.shape[1]:
+        bg = bg[:, :fg.shape[1]]
+    else:
+        # Otherwise, repeat bg to fg length
+        bg = torch.cat([bg] * int(np.ceil(fg.shape[1] / bg.shape[1])), dim=1)[:, :fg.shape[1]]
+
+    # Get the initial energy for reference
+    fg_energy = torch.mean(fg ** 2)
+    bg_energy = torch.mean(bg ** 2)
+
+    # Calculates the gain to be applied to the noise
+    # to achieve the given SNR
+    gain = torch.sqrt(10.0 ** (-snr_db/10) * fg_energy / bg_energy)
+
+    # Assumes signal and noise to be decorrelated
+    # and calculate (a, b) such that energy of 
+    # a*signal + b*noise matches the energy of the input signal
+    a = torch.sqrt(1 / (1 + gain**2))
+    b = torch.sqrt(gain**2 / (1 + gain**2))
+
+    return a * fg + b * bg
 
 def make_index_dict(label_vocab):
     index_lookup = {}
@@ -54,6 +95,11 @@ class ESC50Dataset(Dataset):
         meta_csv,
         root_dir,
         label_vocab,
+        mix_noise=False,
+        tau_root=None,
+        tau_meta=None,
+        tau_scene_label=None,
+        snr=0,
         sample_rate=32000,
         classes_num=50,
         clip_length=5,
@@ -103,6 +149,14 @@ class ESC50Dataset(Dataset):
         self.fmin_aug_range = fmin_aug_range
         self.fmax_aug_range = fmax_aug_range
         self.preemphasis_coefficient = torch.as_tensor([[[-0.97, 1]]])
+
+        # add noise from TAU
+        self.mix_noise = mix_noise
+        if mix_noise:
+            self.tau_root = tau_root
+            self.snr = snr
+            self.tau_meta = pd.read_csv(tau_meta, sep="\t")
+            self.scene_label = tau_scene_label
 
         # augmentation
         self.augment = augment
@@ -199,37 +253,47 @@ class ESC50Dataset(Dataset):
         filepath = Path(self.root_dir) / data_item['filename']
         label = data_item['esc_category']
         audio_name = data_item['filename']
+        text = "" # TODO: add text
 
-        waveform, _ = torchaudio.load(filepath)
-        waveform = self.resample(waveform.squeeze(0))
-        waveform = pad_or_truncate(waveform, self.clip_length)
-        waveform = torch.from_numpy(waveform.reshape(1, -1))
+        if self.mix_noise:
+            # randomly sample 1 file from TAU with given scene label
+            tau_sample = self.tau_meta[self.tau_meta['scene_label'] == self.scene_label].sample(1)
+            noise_filepath = Path(self.tau_root) / tau_sample['filename'].values[0]
+            # mix noise
+            waveform = mix_audios(noise_filepath, filepath, self.snr)
+        else:
+            waveform, _ = torchaudio.load(filepath)
+            waveform = self.resample(waveform.squeeze(0))
+            waveform = pad_or_truncate(waveform, self.clip_length)
+            waveform = torch.from_numpy(waveform.reshape(1, -1))
 
         target = torch.zeros(self.classes_num)
         target[int(self.index_dict[label])] = 1.0
-
         logmel = self.get_logmel(waveform)
 
         if self.augment:
-            if random.random() > self.mixup:
-                mix_sample_idx = random.choices(range(len(self.data)))[0]
+            # Temporarily disable mixup, because mixing TAU bg files makes it
+            # difficult to keep amp consistent
 
-                label2 = self.data.iloc[mix_sample_idx]['esc_category']
-                target2 = torch.zeros(self.classes_num)
-                target2[int(self.index_dict[label2])] = 1.0
+            # if random.random() > self.mixup:
+            #     mix_sample_idx = random.choices(range(len(self.data)))[0]
 
-                filepath2 = Path(self.root_dir) / self.data.iloc[mix_sample_idx]['filename']
-                waveform2, _ = torchaudio.load(filepath2)
-                waveform2 = self.resample(waveform2.squeeze(0))
-                waveform2 = pad_or_truncate(waveform2, self.clip_length)
-                waveform2 = torch.from_numpy(waveform2.reshape(1, -1))
+            #     label2 = self.data.iloc[mix_sample_idx]['esc_category']
+            #     target2 = torch.zeros(self.classes_num)
+            #     target2[int(self.index_dict[label2])] = 1.0
 
-                logmel2 = self.get_logmel(waveform2)
+            #     filepath2 = Path(self.root_dir) / self.data.iloc[mix_sample_idx]['filename']
+            #     waveform2, _ = torchaudio.load(filepath2)
+            #     waveform2 = self.resample(waveform2.squeeze(0))
+            #     waveform2 = pad_or_truncate(waveform2, self.clip_length)
+            #     waveform2 = torch.from_numpy(waveform2.reshape(1, -1))
 
-                # Do mixup
-                mix_lambda = np.random.beta(0.2, 0.2)
-                logmel = mix_lambda * logmel + (1 - mix_lambda) * logmel2
-                target = mix_lambda * target + (1 - mix_lambda) * target2
+            #     logmel2 = self.get_logmel(waveform2)
+
+            #     # Do mixup
+            #     mix_lambda = np.random.beta(0.2, 0.2)
+            #     logmel = mix_lambda * logmel + (1 - mix_lambda) * logmel2
+            #     target = mix_lambda * target + (1 - mix_lambda) * target2
 
             if self.freq_mask > 0:
                 logmel = self.freqm(logmel)
